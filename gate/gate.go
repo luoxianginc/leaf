@@ -1,12 +1,13 @@
 package gate
 
 import (
-	"github.com/name5566/leaf/chanrpc"
-	"github.com/name5566/leaf/log"
-	"github.com/name5566/leaf/network"
 	"net"
 	"reflect"
 	"time"
+
+	"github.com/name5566/leaf/chanrpc"
+	"github.com/name5566/leaf/log"
+	"github.com/name5566/leaf/network"
 )
 
 type Gate struct {
@@ -18,6 +19,8 @@ type Gate struct {
 
 	// websocket
 	WSAddr      string
+	WSPort      string
+	WSSPort     string
 	HTTPTimeout time.Duration
 	CertFile    string
 	KeyFile     string
@@ -29,23 +32,12 @@ type Gate struct {
 }
 
 func (gate *Gate) Run(closeSig chan bool) {
-	var wsServer *network.WSServer
-	if gate.WSAddr != "" {
-		wsServer = new(network.WSServer)
-		wsServer.Addr = gate.WSAddr
-		wsServer.MaxConnNum = gate.MaxConnNum
-		wsServer.PendingWriteNum = gate.PendingWriteNum
-		wsServer.MaxMsgLen = gate.MaxMsgLen
-		wsServer.HTTPTimeout = gate.HTTPTimeout
-		wsServer.CertFile = gate.CertFile
-		wsServer.KeyFile = gate.KeyFile
-		wsServer.NewAgent = func(conn *network.WSConn) network.Agent {
-			a := &agent{conn: conn, gate: gate}
-			if gate.AgentChanRPC != nil {
-				gate.AgentChanRPC.Go("NewAgent", a)
-			}
-			return a
-		}
+	var wsServers []*network.WSServer
+	if gate.WSAddr != "" && gate.WSPort != "" {
+		wsServers = append(wsServers, gate.newWSServer(gate.WSPort, false))
+	}
+	if gate.WSAddr != "" && gate.WSSPort != "" {
+		wsServers = append(wsServers, gate.newWSServer(gate.WSSPort, true))
 	}
 
 	var tcpServer *network.TCPServer
@@ -66,19 +58,53 @@ func (gate *Gate) Run(closeSig chan bool) {
 		}
 	}
 
-	if wsServer != nil {
-		wsServer.Start()
+	if wsServers != nil {
+		for _, s := range wsServers {
+			s.Start()
+		}
 	}
 	if tcpServer != nil {
 		tcpServer.Start()
 	}
+
 	<-closeSig
-	if wsServer != nil {
-		wsServer.Close()
+	if wsServers != nil {
+		for _, s := range wsServers {
+			s.Close()
+		}
 	}
 	if tcpServer != nil {
 		tcpServer.Close()
 	}
+}
+
+func (gate *Gate) newWSServer(port string, isWSS bool) *network.WSServer {
+	addr := gate.WSAddr + ":" + port
+	wsServer := &network.WSServer{
+		Addr:            addr,
+		MaxConnNum:      gate.MaxConnNum,
+		PendingWriteNum: gate.PendingWriteNum,
+		MaxMsgLen:       gate.MaxMsgLen,
+		HTTPTimeout:     gate.HTTPTimeout,
+		NewAgent: func(conn *network.WSConn) network.Agent {
+			a := &agent{conn: conn, gate: gate}
+			if gate.AgentChanRPC != nil {
+				gate.AgentChanRPC.Go("NewAgent", a)
+			}
+			return a
+		},
+	}
+
+	if isWSS {
+		if gate.CertFile == "" || gate.KeyFile == "" {
+			panic("lack of SSL cert or key file")
+		}
+
+		wsServer.CertFile = gate.CertFile
+		wsServer.KeyFile = gate.KeyFile
+	}
+
+	return wsServer
 }
 
 func (gate *Gate) OnDestroy() {}
