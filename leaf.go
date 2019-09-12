@@ -1,13 +1,15 @@
 package leaf
 
 import (
+	"os"
+	"os/signal"
+	"syscall"
+
 	"github.com/luoxianginc/leaf/cluster"
 	"github.com/luoxianginc/leaf/conf"
 	"github.com/luoxianginc/leaf/console"
 	"github.com/luoxianginc/leaf/log"
 	"github.com/luoxianginc/leaf/module"
-	"os"
-	"os/signal"
 )
 
 func Run(mods ...module.Module) {
@@ -37,7 +39,7 @@ func Run(mods ...module.Module) {
 
 	// close
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, os.Kill)
+	signal.Notify(c, os.Interrupt, os.Kill, syscall.SIGTERM)
 	sig := <-c
 	log.Release("Leaf closing down (signal: %v)", sig)
 	console.Destroy()
